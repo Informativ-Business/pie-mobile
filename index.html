@@ -2633,7 +2633,6 @@ var titleEl=document.getElementById('identity-title');var subEl=document.getElem
 if(titleEl)titleEl.textContent='Informativ';if(subEl)subEl.textContent='Sign in to continue';
 showView('login');});
 }
-window.createUserPill=createUserPill;window.removeLoginOverlay=removeLoginOverlay;
 if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',init)}else{init()}
 })();
 </script>
@@ -2660,6 +2659,7 @@ if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded'
   <!-- Loading skeleton - removed after data loads -->
   <div id="pie-loading-skeleton" style="position:fixed;inset:0;background:#F8F7FF;z-index:9998;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Plus Jakarta Sans',sans-serif;">
     <div style="width:48px;height:48px;border:3px solid #E5E7EB;border-top-color:#6627E8;border-radius:50%;animation:pie-spin 0.8s linear infinite;margin-bottom:16px;"></div>
+    <img src="informativ-logo-dark.png" alt="Informativ" style="height:36px;margin-bottom:16px;">
     <div style="font-size:15px;font-weight:700;color:#002757;">Loading PIE Mobile...</div>
     <div style="width:200px;height:4px;background:#E5E7EB;border-radius:2px;margin-top:12px;overflow:hidden;">
       <div style="width:60%;height:100%;background:linear-gradient(90deg,#6627E8,#9F67FF);border-radius:2px;animation:pie-progress 1.5s ease-in-out infinite;"></div>
