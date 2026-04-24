@@ -3887,15 +3887,16 @@ if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded'
           </div>
           <div class="detail-field">
             <div>
-              <div class="detail-label">Phone</div>
+              <div class="detail-label">Direct</div>
               <div class="detail-value editable" data-field="phone">
-                ${prospect.ph || 'Add phone'}
+                ${prospect.ph || 'Add direct line'}
                 <svg class="edit-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
                 </svg>
               </div>
             </div>
           </div>
+          ${prospect.dph ? '<div class="detail-field"><div><div class="detail-label">Dealership</div><div class="detail-value"><a href="tel:' + prospect.dph.replace(/[^0-9+]/g,'') + '" style="color:var(--accent);font-weight:600;text-decoration:none;">' + prospect.dph + '</a> <span style="font-size:10px;color:var(--text-tertiary);font-weight:500;margin-left:4px;">main line</span></div></div></div>' : ''}
         </div>
 
         <div class="quick-actions">
