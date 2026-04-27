@@ -3596,7 +3596,13 @@ if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded'
         const company = (p.co || p.n || '').toLowerCase();
         const contact = ((p.cn || '') + ' ' + (p.fn || '') + ' ' + (p.ln || '')).toLowerCase();
         const grpSearch = (p.grp || p.group || '').toLowerCase();
-        const matchesSearch = !search || company.includes(search) || contact.includes(search) || grpSearch.includes(search);
+        // Also match against active DM (if assigned) and any additional contacts
+        const _rid = String(p.id || p.mcid || '');
+        const _dc = (typeof _mobGetDisplayContact === 'function') ? _mobGetDisplayContact(p) : null;
+        const _dcName = (_dc && _dc.name) ? _dc.name.toLowerCase() : '';
+        const _addNames = ((typeof _mobileAdditionalContacts !== 'undefined' && _mobileAdditionalContacts[_rid]) || [])
+            .map(function(c) { return (c.contact_name || '').toLowerCase(); }).join(' ');
+        const matchesSearch = !search || company.includes(search) || contact.includes(search) || grpSearch.includes(search) || _dcName.includes(search) || _addNames.includes(search);
         const rep = p.rep || p.own || '';
         const matchesRep = (rep === currentRep);
         if (!matchesRep) return false;
@@ -3749,7 +3755,12 @@ if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded'
       }
 
       const affiliateBadge = p.aff ? `<span class="affiliate-badge ${p.aff.toLowerCase()}">${p.aff}</span>` : (p.afs ? `<span class="affiliate-badge ${p.afs.toLowerCase()}">${p.afs}</span>` : '');
-      const contactName = p.cn || ((p.fn || '') + ' ' + (p.ln || '')).trim() || '';
+      // DM Promotion: swap card display to active DM contact when one is assigned, otherwise
+      // fall back to the baked-in primary. Keeps Mattie off the card when she's been demoted to Referrer.
+      const _mobDc = (typeof _mobGetDisplayContact === 'function') ? _mobGetDisplayContact(p) : null;
+      const contactName = (_mobDc && _mobDc.name) || p.cn || ((p.fn || '') + ' ' + (p.ln || '')).trim() || '';
+      const _mobDcTitle = (_mobDc && _mobDc.title) || p.ti || '';
+      const _mobDcRoleBadge = (_mobDc && _mobDc.role && _mobDc.role !== 'contact') ? _mobRenderRoleBadge(_mobDc.role) : '';
       const tierClass = (p.tier || 'protect').toLowerCase();
       const margin = p.mg || p.gm || 0;
       const mrrDisplay = p.mrr ? '$' + Number(p.mrr).toLocaleString() : '';
@@ -3769,7 +3780,7 @@ if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded'
             </div>
             ${scoreDisplay}
           </div>
-          <div class="card-contact">${contactName}${p.ti ? ' · ' + p.ti : ''}</div>
+          <div class="card-contact">${contactName}${_mobDcTitle ? ' · ' + _mobDcTitle : ''}${_mobDcRoleBadge}</div>
           ${extraInfo}
           <div class="card-meta">${p.oem ? p.oem + ' · ' : ''}${cityState || p.ter || ''}</div>
           <div class="card-actions">
@@ -3870,6 +3881,15 @@ if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded'
               </div>
             </div>
           </div>
+          <div class="detail-field">
+            <div>
+              <div class="detail-label">Role <span style="font-size:10px;font-weight:500;color:#94A3B8;">(rep-assigned)</span></div>
+              <div class="detail-value" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                ${_mobRenderRoleBadge(((_mobileContactRoles[String(prospect.id || prospect.mcid || '')] || {}).primary) || 'contact')}
+                ${_mobRenderRoleSelect(String(prospect.id || prospect.mcid || ''), 'primary', ((_mobileContactRoles[String(prospect.id || prospect.mcid || '')] || {}).primary) || 'contact')}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="detail-section">
@@ -3962,6 +3982,15 @@ if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded'
               <input type="text" id="mobNewContactTitle" placeholder="Title" style="padding:8px 10px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;">
               <input type="email" id="mobNewContactEmail" placeholder="Email" style="padding:8px 10px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;">
               <input type="tel" id="mobNewContactPhone" placeholder="Phone" style="padding:8px 10px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;">
+            </div>
+            <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+              <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#64748B;">Role</label>
+              <select id="mobNewContactRole" style="flex:1;padding:8px 10px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;background:white;color:#334155;">
+                <option value="contact" selected>Contact</option>
+                <option value="dm_store">Decision Maker — Store</option>
+                <option value="dm_group">Decision Maker — Group</option>
+                <option value="referrer">Referrer</option>
+              </select>
             </div>
             <div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end;">
               <button onclick="document.getElementById('mobileAddContactForm').style.display='none'" style="padding:8px 16px;border:1px solid #E2E8F0;border-radius:8px;background:white;color:#64748B;font-size:13px;cursor:pointer;">Cancel</button>
@@ -6325,15 +6354,103 @@ if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded'
     // SERVICE WORKER — Real Implementation
     // ============================================================
 
-    // ===== FEATURE 3: ADD STORE / ADD CONTACT / SET GROUP =====
+    // ===== FEATURE 3: ADD STORE / ADD CONTACT / SET GROUP / CONTACT ROLES (DM Promotion) =====
     const PROSPECTS_API = API_PROXY + '?path=/api/cs/prospects';
     const PROSPECTS_HEADERS = API_HEADERS;
     var _mobileCustomProspects = {};
     var _mobileGroupAssocs = {};
     var _mobileAdditionalContacts = {};
+    var _mobileContactRoles = {};  // { record_id: { primary: "<role>", "0": "<role>", ... } }
     var _mobileAllGroups = [];
     var _mobileGroupFilter = '';
     var _mobileStateFilter = '';
+
+    var _MOB_ROLE_BADGES = {
+        'dm_group':  { label: 'DM — Group',  bg: '#EDE9FE', fg: '#6627E8', border: '#C4B5FD' },
+        'dm_store':  { label: 'DM — Store',  bg: '#DBEAFE', fg: '#1E40AF', border: '#93C5FD' },
+        'referrer':  { label: 'Referrer',    bg: '#F1F5F9', fg: '#64748B', border: '#CBD5E1' },
+        'contact':   null
+    };
+    function _mobRenderRoleBadge(role) {
+        var b = _MOB_ROLE_BADGES[role];
+        if (!b) return '';
+        return '<span style="display:inline-block;padding:2px 7px;border-radius:9px;font-size:9px;font-weight:700;background:' + b.bg + ';color:' + b.fg + ';border:1px solid ' + b.border + ';vertical-align:middle;margin-left:4px;letter-spacing:0.02em;">' + b.label + '</span>';
+    }
+    function _mobRenderRoleSelect(recordId, contactKey, currentRole) {
+        var labels = { 'contact': 'Contact', 'dm_store': 'DM — Store', 'dm_group': 'DM — Group', 'referrer': 'Referrer' };
+        var opts = ['contact', 'dm_store', 'dm_group', 'referrer'].map(function(r) {
+            return '<option value="' + r + '"' + (r === currentRole ? ' selected' : '') + '>' + labels[r] + '</option>';
+        }).join('');
+        return '<select class="mob-role-select" data-recid="' + String(recordId) + '" data-contactkey="' + String(contactKey) + '" style="padding:6px 10px;font-size:12px;border:1px solid #E2E8F0;border-radius:8px;background:white;font-family:\'DM Sans\',sans-serif;color:#334155;cursor:pointer;">' + opts + '</select>';
+    }
+    function _mobGetDisplayContact(p) {
+        var rid = String((p && (p.id || p.mcid || p.prospect_id)) || '');
+        var primary = {
+            name: p.cn || ((p.fn || p.ln) ? ((p.fn || '') + ' ' + (p.ln || '')).trim() : '') || '',
+            title: p.ti || '',
+            email: p.em || '',
+            phone: p.ph || '',
+            source: 'primary',
+            idx: null,
+            role: 'contact'
+        };
+        if (!rid) return primary;
+        var roles = _mobileContactRoles[rid] || {};
+        if (!Object.keys(roles).length) return primary;
+        var primaryRole = roles.primary || 'contact';
+        var dmKey = null, dmRole = null;
+        Object.keys(roles).forEach(function(k) {
+            var r = roles[k];
+            if (r !== 'dm_group' && r !== 'dm_store') return;
+            if (!dmRole) { dmKey = k; dmRole = r; return; }
+            if (r === 'dm_group' && dmRole === 'dm_store') { dmKey = k; dmRole = r; return; }
+            if (r === dmRole) {
+                if (k === 'primary' && dmKey !== 'primary') { dmKey = k; dmRole = r; return; }
+                if (dmKey !== 'primary' && k !== 'primary' && parseInt(k, 10) < parseInt(dmKey, 10)) { dmKey = k; dmRole = r; }
+            }
+        });
+        if (!dmKey) { primary.role = primaryRole; return primary; }
+        if (dmKey === 'primary') { primary.role = dmRole; return primary; }
+        var idx = parseInt(dmKey, 10);
+        var additional = ((_mobileAdditionalContacts[rid] || [])[idx]) || null;
+        if (!additional) { primary.role = primaryRole; return primary; }
+        return {
+            name: additional.contact_name || '',
+            title: additional.title || '',
+            email: additional.email || '',
+            phone: additional.phone || '',
+            source: 'additional',
+            idx: idx,
+            role: dmRole
+        };
+    }
+    async function _mobSetContactRole(recordId, contactKey, newRole) {
+        if (!recordId) return;
+        var rep = (typeof selectedRep !== 'undefined' && selectedRep) ? selectedRep : 'Unknown';
+        if (!_mobileContactRoles[recordId]) _mobileContactRoles[recordId] = {};
+        _mobileContactRoles[recordId][String(contactKey)] = newRole;
+        if (contactKey !== 'primary' && _mobileAdditionalContacts[recordId]) {
+            var idx = parseInt(contactKey, 10);
+            if (_mobileAdditionalContacts[recordId][idx]) _mobileAdditionalContacts[recordId][idx].role = newRole;
+        }
+        try { renderMobileAdditionalContacts(recordId); } catch(e) {}
+        try { if (typeof renderProspects === 'function') renderProspects(); } catch(e) {}
+        try {
+            await fetch(PROSPECTS_API + '&action=set_contact_role', {
+                method: 'POST', headers: PROSPECTS_HEADERS,
+                body: JSON.stringify({ record_id: String(recordId), contact_key: String(contactKey), role: newRole, set_by: rep })
+            });
+        } catch(e) {
+            queueOfflineAction({ endpoint: PROSPECTS_API + '?action=set_contact_role', payload: { record_id: String(recordId), contact_key: String(contactKey), role: newRole, set_by: rep } });
+        }
+    }
+    document.addEventListener('change', function(e) {
+        var el = e.target;
+        if (!el || !el.classList || !el.classList.contains('mob-role-select')) return;
+        var rid = el.getAttribute('data-recid');
+        var key = el.getAttribute('data-contactkey');
+        _mobSetContactRole(rid, key, el.value);
+    });
 
     var _STATE_ABBREV = {ALABAMA:'AL',ALASKA:'AK',ARIZONA:'AZ',ARKANSAS:'AR',CALIFORNIA:'CA',COLORADO:'CO',CONNECTICUT:'CT',DELAWARE:'DE',FLORIDA:'FL',GEORGIA:'GA',HAWAII:'HI',IDAHO:'ID',ILLINOIS:'IL',INDIANA:'IN',IOWA:'IA',KANSAS:'KS',KENTUCKY:'KY',LOUISIANA:'LA',MAINE:'ME',MARYLAND:'MD',MASSACHUSETTS:'MA',MICHIGAN:'MI',MINNESOTA:'MN',MISSISSIPPI:'MS',MISSOURI:'MO',MONTANA:'MT',NEBRASKA:'NE',NEVADA:'NV','NEW HAMPSHIRE':'NH','NEW JERSEY':'NJ','NEW MEXICO':'NM','NEW YORK':'NY','NORTH CAROLINA':'NC','NORTH DAKOTA':'ND',OHIO:'OH',OKLAHOMA:'OK',OREGON:'OR',PENNSYLVANIA:'PA','RHODE ISLAND':'RI','SOUTH CAROLINA':'SC','SOUTH DAKOTA':'SD',TENNESSEE:'TN',TEXAS:'TX',UTAH:'UT',VERMONT:'VT',VIRGINIA:'VA',WASHINGTON:'WA','WEST VIRGINIA':'WV',WISCONSIN:'WI',WYOMING:'WY','DISTRICT OF COLUMBIA':'DC','PUERTO RICO':'PR',GUAM:'GU','AMERICAN SAMOA':'AS','U.S. VIRGIN ISLANDS':'VI','NORTHERN MARIANA ISLANDS':'MP',ALBERTA:'AB'};
     function _normalizeState(raw) {
@@ -6506,6 +6623,7 @@ if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded'
         _mobileCustomProspects = data.prospects || {};
         _mobileGroupAssocs = data.group_associations || {};
         _mobileAdditionalContacts = data.additional_contacts || {};
+        _mobileContactRoles = data.contact_roles || {};
 
         // Inject custom prospects into PIE_NN
         if (typeof PIE_NN !== 'undefined') {
@@ -6640,43 +6758,68 @@ if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded'
 
     async function saveMobileNewContact() {
       if (!currentProspect) return;
-      var recordId = currentProspect.id || currentProspect.co || '';
+      var recordId = String(currentProspect.id || currentProspect.co || '');
+      var roleEl = document.getElementById('mobNewContactRole');
+      var role = (roleEl && roleEl.value) || 'contact';
       var payload = {
-        record_id: String(recordId),
+        record_id: recordId,
         contact_name: (document.getElementById('mobNewContactName') || {}).value || '',
         title: (document.getElementById('mobNewContactTitle') || {}).value || '',
         email: (document.getElementById('mobNewContactEmail') || {}).value || '',
         phone: (document.getElementById('mobNewContactPhone') || {}).value || '',
+        role: role,
         added_by: typeof selectedRep !== 'undefined' ? selectedRep : 'Unknown'
       };
+      function _localApply(idxOverride) {
+        if (!_mobileAdditionalContacts[recordId]) _mobileAdditionalContacts[recordId] = [];
+        _mobileAdditionalContacts[recordId].push(payload);
+        if (!_mobileContactRoles[recordId]) _mobileContactRoles[recordId] = {};
+        var newIdx = (idxOverride !== undefined) ? idxOverride : (_mobileAdditionalContacts[recordId].length - 1);
+        _mobileContactRoles[recordId][String(newIdx)] = role;
+        renderMobileAdditionalContacts(recordId);
+        try { if (typeof renderProspects === 'function') renderProspects(); } catch(e) {}
+        document.getElementById('mobileAddContactForm').style.display = 'none';
+      }
       try {
-        await fetch(PROSPECTS_API + '&action=add_contact', {
+        var resp = await fetch(PROSPECTS_API + '&action=add_contact', {
           method: 'POST', headers: PROSPECTS_HEADERS, body: JSON.stringify(payload)
         });
-        if (!_mobileAdditionalContacts[recordId]) _mobileAdditionalContacts[recordId] = [];
-        _mobileAdditionalContacts[recordId].push(payload);
-        renderMobileAdditionalContacts(recordId);
-        document.getElementById('mobileAddContactForm').style.display = 'none';
+        var data = await resp.json().catch(function() { return null; });
+        var idx = (data && data.contact_index !== undefined) ? data.contact_index : undefined;
+        _localApply(idx);
       } catch(e) {
         queueOfflineAction({ endpoint: PROSPECTS_API + '?action=add_contact', payload: payload });
-        if (!_mobileAdditionalContacts[recordId]) _mobileAdditionalContacts[recordId] = [];
-        _mobileAdditionalContacts[recordId].push(payload);
-        renderMobileAdditionalContacts(recordId);
-        document.getElementById('mobileAddContactForm').style.display = 'none';
+        _localApply();
       }
     }
 
     function renderMobileAdditionalContacts(recordId) {
       var container = document.getElementById('mobileAdditionalContacts');
       if (!container) return;
-      var contacts = _mobileAdditionalContacts[String(recordId)] || [];
+      var rid = String(recordId);
+      var contacts = _mobileAdditionalContacts[rid] || [];
       if (contacts.length === 0) { container.innerHTML = ''; return; }
+      var roles = _mobileContactRoles[rid] || {};
       container.innerHTML = '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#8B8FA8;margin:10px 0 6px;">Additional Contacts</div>' +
-        contacts.map(function(c) { return '<div style="background:#F8FAFC;border-radius:8px;padding:8px 10px;margin-bottom:4px;font-size:13px;color:#334155;">' +
-          (c.contact_name || 'Unnamed') + (c.title ? ' · ' + c.title : '') +
-          (c.email ? '<br><span style="color:#6627E8;font-size:12px;">' + c.email + '</span>' : '') +
-          (c.phone ? ' · <span style="color:#6627E8;font-size:12px;">' + c.phone + '</span>' : '') +
-        '</div>'; }).join('');
+        contacts.map(function(c, idx) {
+          var key = String(idx);
+          var currentRole = roles[key] || c.role || 'contact';
+          return '<div style="background:#F8FAFC;border-radius:8px;padding:10px 12px;margin-bottom:6px;font-size:13px;color:#334155;">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px;">' +
+              '<div style="font-weight:700;color:#0F172A;">' +
+                (c.contact_name || 'Unnamed') +
+                (c.title ? ' <span style="font-weight:500;color:#64748B;">· ' + c.title + '</span>' : '') +
+                _mobRenderRoleBadge(currentRole) +
+              '</div>' +
+              _mobRenderRoleSelect(rid, key, currentRole) +
+            '</div>' +
+            ((c.email || c.phone) ? '<div>' +
+              (c.email ? '<a href="mailto:' + encodeURI(c.email) + '" style="color:#6627E8;font-size:12px;text-decoration:none;">' + c.email + '</a>' : '') +
+              (c.email && c.phone ? ' · ' : '') +
+              (c.phone ? '<a href="tel:' + (c.phone || '').replace(/[^0-9+]/g, '') + '" style="color:#6627E8;font-size:12px;text-decoration:none;">' + c.phone + '</a>' : '') +
+            '</div>' : '') +
+          '</div>';
+        }).join('');
     }
 
     async function saveMobileGroupAssoc(group) {
